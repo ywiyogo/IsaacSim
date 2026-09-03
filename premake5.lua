@@ -230,17 +230,30 @@ function group_apps(kit)
 end
 
 
--- Check for system NVCC first, but only on ARM64 (aarch64) where glibc compatibility issues exist
+-- CUDA toolkit selection: prefer a system installation over the bundled one.
+-- The bundled CUDA (12.8) is often older than what's available on modern distros.
+-- On Arch Linux with GCC 16, the bundled CUDA 12.8 cannot compile .cu files
+-- because its cudafe++ frontend doesn't understand GCC 15+'s parenthesized
+-- built-in type-traits syntax (__is_pointer(_Tp), etc.) and its headers conflict
+-- with glibc 2.35+'s noexcept math function declarations (cospi, sinpi, rsqrt).
+-- A newer system CUDA (13.3+) handles both GCC 14+ headers and modern glibc.
 local osHostArch = os.hostarch()
 local osTarget = os.target()
-local systemNvccPath = "/usr/local/cuda/bin/nvcc"
+local systemNvccPath = "/opt/cuda/bin/nvcc"
+local systemNvccAltPath = "/usr/local/cuda/bin/nvcc"
 nvccPath = path.getabsolute("_build/target-deps/cuda/bin/nvcc")
 cudaIncludePath = path.getabsolute("_build/target-deps/cuda/include")
 cudaLibPathLinux = path.getabsolute("_build/target-deps/cuda/lib64")
-if osTarget == "linux" and os.isfile(systemNvccPath) and (osHostArch == "aarch64" or osHostArch == "arm64" or osHostArch == "ARM64") then
-    nvccPath = systemNvccPath
+if osTarget == "linux" and (osHostArch == "aarch64" or osHostArch == "arm64" or osHostArch == "ARM64") and os.isfile(systemNvccAltPath) then
+    nvccPath = systemNvccAltPath
     cudaIncludePath = "/usr/local/cuda/include"
     cudaLibPathLinux = "/usr/local/cuda/lib64"
+elseif osTarget == "linux" and os.isfile(systemNvccPath) then
+    -- Use system CUDA on x86_64 too (previously only ARM64); newer CUDA
+    -- toolkits support more recent GCC versions and modern glibc.
+    nvccPath = systemNvccPath
+    cudaIncludePath = "/opt/cuda/include"
+    cudaLibPathLinux = "/opt/cuda/lib64"
 end
 print("Using NVCC binary: " .. nvccPath)
 print("Using CUDA includes directory: " .. cudaIncludePath)
@@ -249,6 +262,23 @@ print("Using CUDA libs directory: " .. cudaLibPathLinux)
 filter { "system:windows" }
 nvccHostCompilerVS = path.getabsolute("_build/host-deps/msvc/VC")
 filter {}
+
+-- Host compiler for nvcc on Linux.
+-- nvcc delegates host-side preprocessing and compilation to an external C++
+-- compiler.  By default it searches PATH for `g++` / `g++-<N>`, but on rolling
+-- distros like Arch Linux the newest GCC (16) may be incompatible with the
+-- CUDA toolkit's parser (cudafe++).  Using a slightly older GCC (14) avoids
+-- both the type-traits parsing issue and the glibc noexcept conflict.
+--
+-- WARNING: this assignment MUST come AFTER the "filter {system:windows}" block
+-- above, because premake5's filter{} only guards build-settings API calls, not
+-- plain Lua variable assignments.  If placed before, the Windows filter block
+-- would unconditionally overwrite this value on all platforms.
+if osTarget == "linux" then
+    if os.isfile("/usr/bin/g++-14") then
+        nvccHostCompilerVS = "/usr/bin/g++-14"
+    end
+end
 -- -- Insert kit template premake configuration, it creates solution, finds extensions.. Look inside for more details.
 -- dofile("_repo/deps/repo_kit_tools/kit-template/premake5.lua")
 -- mostly so outside code knows we are building isaac-sim
@@ -286,4 +316,11 @@ function setup_all(options)
     create_tests()
 end
 
-setup_all { cppdialect = "C++17" }
+-- Use the GNU dialect (-std=gnu++17) instead of strict ISO C++17:
+-- in strict mode libstdc++ (GCC >= 16) defines std::hash<__int128> while
+-- __GLIBCXX_TYPE_INT_N_0 stays undefined, which makes carb's Int128.h
+-- redefine it and breaks the build. In GNU mode the macro is defined and
+-- carb's Int128.h guard correctly skips its own specializations.
+CPP_DIALECT = "gnu++17"
+
+setup_all { cppdialect = CPP_DIALECT }

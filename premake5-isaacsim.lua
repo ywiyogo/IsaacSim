@@ -140,10 +140,24 @@ function make_nvcc_command(nvccPath, nvccHostCompilerVS, nvccHostCompilerFlags, 
         if isPtx then
             ext = ".ptx"
         end
+        -- On Linux, nvcc auto-detects the host C++ compiler (g++) by searching PATH.
+        -- On systems with multiple GCC versions (e.g., Arch Linux with GCC 14/15/16),
+        -- nvcc may pick a version too new for its CUDA frontend to parse,
+        -- causing errors with GCC built-in type-traits syntax (__is_pointer(_Tp), etc.).
+        --
+        -- --compiler-bindir forces nvcc to use a specific host compiler (set via
+        -- nvccHostCompilerVS in premake5.lua), ensuring compatibility between
+        -- the CUDA toolkit and the GCC version used for host-side preprocessing
+        -- and compilation of .cu files.
+        local compilerBindir = ""
+        if nvccHostCompilerVS and #nvccHostCompilerVS > 0 then
+            compilerBindir = " --compiler-bindir " .. nvccHostCompilerVS
+        end
         local buildString = '"'
             .. nvccPath
             .. '" -std=c++17 '
             .. nvccFlags
+            .. compilerBindir
             .. " -Xcompiler="
             .. commaficate(nvccXcompilerFlags)
             .. " -c -I "
@@ -337,7 +351,7 @@ function create_test_experience_runner(name, config_path, config, kit_sdk_config
         end
         local executable = executable or exe
         -- local executable = "kit"
-        local arch = io.popen("arch", "r"):read("*l")
+        local arch = io.popen("arch 2>/dev/null || uname -m", "r"):read("*l")
         local platform_name = "linux"
 
         if os_target == "macosx" then
