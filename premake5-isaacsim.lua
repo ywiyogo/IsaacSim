@@ -140,10 +140,17 @@ function make_nvcc_command(nvccPath, nvccHostCompilerVS, nvccHostCompilerFlags, 
         if isPtx then
             ext = ".ptx"
         end
+        -- Force nvcc to use a host compiler compatible with the toolkit frontend;
+        -- on systems with several GCC versions nvcc may otherwise pick one too new.
+        local compilerBindir = ""
+        if nvccHostCompilerVS and #nvccHostCompilerVS > 0 then
+            compilerBindir = " --compiler-bindir " .. nvccHostCompilerVS
+        end
         local buildString = '"'
             .. nvccPath
             .. '" -std=c++17 '
             .. nvccFlags
+            .. compilerBindir
             .. " -Xcompiler="
             .. commaficate(nvccXcompilerFlags)
             .. " -c -I "
@@ -337,7 +344,7 @@ function create_test_experience_runner(name, config_path, config, kit_sdk_config
         end
         local executable = executable or exe
         -- local executable = "kit"
-        local arch = io.popen("arch", "r"):read("*l")
+        local arch = io.popen("arch 2>/dev/null || uname -m", "r"):read("*l")
         local platform_name = "linux"
 
         if os_target == "macosx" then
@@ -708,4 +715,3 @@ setlocal
         f:close()
     end
 end
-
