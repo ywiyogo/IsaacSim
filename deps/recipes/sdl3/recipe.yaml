@@ -14,6 +14,11 @@ requirements:
     - ${{ compiler('c') }}
     - cmake ==4.3.2
     - ninja ==1.13.2
+    # SDL's CMake probes for optional X11-adjacent deps (D-Bus, Fribidi, LibThai,
+    # liburing) with pkg-config. Without pkg-config in the build environment CMake
+    # falls back to the host's pkg-config and enables features whose headers do not
+    # exist in the conda sysroot.
+    - pkg-config
     - python ==3.12.13
   host:
     - if: linux
