@@ -302,17 +302,25 @@ function group_apps(kit)
 end
 
 
--- Check for system NVCC first, but only on ARM64 (aarch64) where glibc compatibility issues exist
+-- CUDA toolkit selection: prefer a system installation over the bundled one.
+-- The bundled CUDA 12.8 cannot compile .cu files with GCC 15+ (cudafe++ builtin
+-- type-traits syntax) nor with modern glibc (noexcept math function declarations).
+-- A newer system CUDA (13.3+) handles both. This mirrors the existing ARM64 logic.
 local osHostArch = os.hostarch()
 local osTarget = os.target()
-local systemNvccPath = "/usr/local/cuda/bin/nvcc"
+local systemNvccPath = "/opt/cuda/bin/nvcc"
+local systemNvccAltPath = "/usr/local/cuda/bin/nvcc"
 nvccPath = path.getabsolute("_build/target-deps/cuda/bin/nvcc")
 cudaIncludePath = path.getabsolute("_build/target-deps/cuda/include")
 cudaLibPathLinux = path.getabsolute("_build/target-deps/cuda/lib64")
-if osTarget == "linux" and os.isfile(systemNvccPath) and (osHostArch == "aarch64" or osHostArch == "arm64" or osHostArch == "ARM64") then
-    nvccPath = systemNvccPath
+if osTarget == "linux" and (osHostArch == "aarch64" or osHostArch == "arm64" or osHostArch == "ARM64") and os.isfile(systemNvccAltPath) then
+    nvccPath = systemNvccAltPath
     cudaIncludePath = "/usr/local/cuda/include"
     cudaLibPathLinux = "/usr/local/cuda/lib64"
+elseif osTarget == "linux" and os.isfile(systemNvccPath) then
+    nvccPath = systemNvccPath
+    cudaIncludePath = "/opt/cuda/include"
+    cudaLibPathLinux = "/opt/cuda/lib64"
 end
 print("Using NVCC binary: " .. nvccPath)
 print("Using CUDA includes directory: " .. cudaIncludePath)
@@ -321,6 +329,19 @@ print("Using CUDA libs directory: " .. cudaLibPathLinux)
 filter { "system:windows" }
 nvccHostCompilerVS = path.getabsolute("_build/host-deps/msvc/VC")
 filter {}
+
+-- Host compiler for nvcc on Linux. nvcc auto-detects g++/g++-N from PATH, but on
+-- rolling distros the newest GCC can be too new for the CUDA frontend. Prefer a
+-- known-good older GCC when present. Must be assigned after the filter{} block:
+-- premake's filter only guards build-settings calls, not plain Lua assignments.
+if osTarget == "linux" then
+    for _, cudaHostCompilerCandidate in ipairs({ "/usr/bin/g++-14", "/usr/bin/g++-15" }) do
+        if os.isfile(cudaHostCompilerCandidate) then
+            nvccHostCompilerVS = cudaHostCompilerCandidate
+            break
+        end
+    end
+end
 -- -- Insert kit template premake configuration, it creates solution, finds extensions.. Look inside for more details.
 -- dofile("_repo/deps/repo_kit_tools/kit-template/premake5.lua")
 -- mostly so outside code knows we are building isaac-sim
@@ -358,4 +379,10 @@ function setup_all(options)
     create_tests()
 end
 
-setup_all { cppdialect = "C++17" }
+-- Use the GNU dialect (-std=gnu++17) instead of strict ISO C++17: in strict mode
+-- libstdc++ (GCC >= 16) defines std::hash<__int128> while __GLIBCXX_TYPE_INT_N_0
+-- stays undefined, so carb's Int128.h redefines it. In GNU mode the macro is
+-- defined and carb's guard skips its own specializations.
+local CPP_DIALECT = "gnu++17"
+
+setup_all { cppdialect = CPP_DIALECT }
