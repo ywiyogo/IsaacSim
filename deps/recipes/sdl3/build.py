@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -68,6 +69,7 @@ def main() -> None:
         str(build_directory),
         "-G",
         "Ninja",
+        *shlex.split(os.environ.get("CMAKE_ARGS", "")),
         "-DCMAKE_BUILD_TYPE=Release",
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         f"-DCMAKE_INCLUDE_PATH={prefix / 'include'}",
