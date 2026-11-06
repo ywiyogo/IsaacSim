@@ -345,7 +345,9 @@ function create_test_experience_runner(name, config_path, config, kit_sdk_config
         end
         local executable = executable or exe
         -- local executable = "kit"
-        local arch = io.popen("arch", "r"):read("*l")
+        -- `arch` is not part of coreutils/util-linux on rolling distributions such
+        -- as Arch, so fall back to the equivalent uname output.
+        local arch = io.popen("arch 2>/dev/null || uname -m", "r"):read("*l")
         local platform_name = "linux"
 
         if os_target == "macosx" then

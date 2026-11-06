@@ -87,6 +87,11 @@ function isaacsim_build_settings()
     filter { "system:linux" }
     disablewarnings { "error=unused-function" }
     buildoptions { "-Wno-error", "-Wno-deprecated" }
+    -- gnu++17 rather than the strict ISO C++17 every project pins: in strict mode
+    -- libstdc++ (GCC >= 16) defines std::hash<__int128> while __GLIBCXX_TYPE_INT_N_0
+    -- stays undefined, so carb's Int128.h redefines it for carb::math::int128_t.
+    -- Appended after the dialect flag, so the later -std wins.
+    buildoptions { "-std=gnu++17" }
 
     filter {}
 end
@@ -303,14 +308,21 @@ function group_apps(kit)
 end
 
 
--- Check for system NVCC first, but only on ARM64 (aarch64) where glibc compatibility issues exist
+-- Check for system NVCC first: the bundled CUDA 12.8 cannot compile .cu files
+-- against glibc 2.4x/rolling-distro headers, so distro packages such as Arch's
+-- /opt/cuda are preferred on every host architecture.
 local osHostArch = os.hostarch()
 local osTarget = os.target()
 local systemNvccPath = "/usr/local/cuda/bin/nvcc"
+local systemNvccDistroPath = "/opt/cuda/bin/nvcc"
 nvccPath = path.getabsolute("_build/target-deps/cuda/bin/nvcc")
 cudaIncludePath = path.getabsolute("_build/target-deps/cuda/include")
 cudaLibPathLinux = path.getabsolute("_build/target-deps/cuda/lib64")
-if osTarget == "linux" and os.isfile(systemNvccPath) and (osHostArch == "aarch64" or osHostArch == "arm64" or osHostArch == "ARM64") then
+if osTarget == "linux" and os.isfile(systemNvccDistroPath) then
+    nvccPath = systemNvccDistroPath
+    cudaIncludePath = "/opt/cuda/include"
+    cudaLibPathLinux = "/opt/cuda/lib64"
+elseif osTarget == "linux" and os.isfile(systemNvccPath) and (osHostArch == "aarch64" or osHostArch == "arm64" or osHostArch == "ARM64") then
     nvccPath = systemNvccPath
     cudaIncludePath = "/usr/local/cuda/include"
     cudaLibPathLinux = "/usr/local/cuda/lib64"

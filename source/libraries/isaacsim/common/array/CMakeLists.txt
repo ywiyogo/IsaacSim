@@ -105,11 +105,17 @@ if(EXISTS "${isaacsim_array_nvcc}")
             "Vendored nvcc used to build isaacsim.common.array's CUDA kernel library"
         )
     endif()
-    enable_language(CUDA)
-
-    if(NOT CMAKE_CUDA_ARCHITECTURES)
-        set(CMAKE_CUDA_ARCHITECTURES "native")
+    # CUDA 13 dropped pre-Turing targets, so nvcc rejects the `52` that CMake
+    # defaults CMAKE_CUDA_ARCHITECTURES to. Pin the oldest architecture the
+    # pinned toolkit still supports; FORCE overwrites the cached default left by
+    # an earlier configure. Must run before enable_language(), which is what
+    # populates the default in the first place.
+    if(NOT CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "52")
+        set(CMAKE_CUDA_ARCHITECTURES "75" CACHE STRING
+            "CUDA architectures for isaacsim.common.array's CUDA kernel library" FORCE
+        )
     endif()
+    enable_language(CUDA)
 
     add_library(isaacsim-common-array-cuda-kernels SHARED
         src/details/cuda_kernels/BinaryOp.cu
